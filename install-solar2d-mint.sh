@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Solar2D 2026.3736 for x86-64 Linux Mint 22.x (Ubuntu 24.04 base).
-# Tested: source/submodule retrieval, MSI download/extraction, archive integrity,
-# Bash syntax and ShellCheck. NOT tested: compilation, GUI/audio or app exports.
+# User confirmed Linux, HTML5 and Android exports work with this release.
 # Run as your normal user: bash install-solar2d-mint.sh
 set -Eeuo pipefail
 trap 'printf "Installation stopped at line %s. Fix the error above and rerun.\n" "$LINENO" >&2' ERR
@@ -84,6 +83,17 @@ launcher="$HOME/.local/bin/solar2d-2026.3736"
     printf 'cd %q\nexec ./Solar2DSimulator "$@"\n' "$build"
 } > "$launcher"
 chmod +x "$launcher"
-printf '\nInstalled. Launch with: %s\n' "$launcher"
-printf 'Next: test sound, then export a small Linux, HTML5 and Android project.\n'
+
+# Keep the command stable when an updated installer changes the launcher version.
+sudo mkdir -p /usr/local/bin
+sudo ln -sfnT "$launcher" /usr/local/bin/Solar2d
+# Remove only the old link created for this user's versioned launchers.
+if [[ -L /usr/bin/Solar2d ]]; then
+    case "$(readlink /usr/bin/Solar2d)" in
+        "$HOME/.local/bin/solar2d-"*) sudo unlink /usr/bin/Solar2d ;;
+    esac
+fi
+printf '\nInstalled. Launch with: Solar2d\n'
+printf 'Launcher: %s\n' "$launcher"
 printf 'Android exports require Internet access for Gradle/SDK dependencies.\n'
+printf 'The first Android build can take much longer while dependencies download.\n'

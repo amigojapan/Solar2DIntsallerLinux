@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
-# Solar2D 2026.3736 for x86-64 Linux Mint 22.x (Ubuntu 24.04 base).
-# User confirmed Linux, HTML5 and Android exports work with this release.
-# Run as your normal user: bash install-solar2d-mint.sh
+# Solar2D Installer for x86-64 Linux (Debian/Ubuntu base).
+# Run as your normal user: bash install-solar2d.sh
 set -Eeuo pipefail
 trap 'printf "Installation stopped at line %s. Fix the error above and rerun.\n" "$LINENO" >&2' ERR
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 (( EUID != 0 )) || fail 'Run as your normal user, not with sudo.'
-# shellcheck disable=SC1091
-source /etc/os-release
-[[ ${ID:-} == linuxmint && ${VERSION_ID:-} == 22* ]] ||
-    fail 'This script targets Linux Mint 22.x; other releases are not validated.'
+
+# 1. Removed the Linux Mint check (os-release).
+# Kept only the architecture check (must be 64-bit).
 [[ $(uname -m) == x86_64 ]] || fail 'An x86-64 system is required.'
 export LANG=C.UTF-8 LC_ALL=C.UTF-8 LANGUAGE=en
 
-revision=d74923057d3fc3abad1903b61de5a459d9566363
-root="$HOME/.local/share/solar2d-2026.3736"
+# 2. Automatic retrieval of the latest version from GitHub (Tags, Year, and MSI link)
+echo "Buscando informações da última versão do Solar2D no GitHub..."
+LATEST_JSON=$(curl -s https://api.github.com/repos/coronalabs/corona/releases/latest)
+
+# Extracts the build number (e.g., 3737) and the MSI download URL
+BUILD_NUMBER=$(echo "$LATEST_JSON" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+MSI_URL=$(echo "$LATEST_JSON" | grep "browser_download_url" | grep -i "\.msi" | cut -d '"' -f 4 | head -n 1)
+MSI_FILE=$(basename "$MSI_URL")
+YEAR=$(echo "$MSI_FILE" | sed -n 's/.*-\([0-9]\{4\}\)\..*/\1/p') # Get the year from the filename
+
+if [[ -z "$BUILD_NUMBER" ]] || [[ -z "$MSI_URL" ]]; then
+    fail "Falha ao obter a última versão do Github. Verifique sua conexão com a internet."
+fi
+
+echo "Latest version found: $YEAR.$BUILD_NUMBER"
+echo "Preparing installation..."
+
+root="$HOME/.local/share/solar2d-${YEAR}.${BUILD_NUMBER}"
 src="$root/source"
 build="$root/build"
 mkdir -p "$root"
@@ -25,23 +39,22 @@ sudo apt-get install -y --no-install-recommends \
     zlib1g-dev libgl1-mesa-dev libopenal-dev libfreetype-dev libpng-dev \
     libcurl4-openssl-dev libjpeg-dev libssl-dev libsdl2-dev openjdk-17-jdk-headless
 
-# Use the exact release reviewed; never reset or delete an existing checkout.
 if [[ ! -e "$src" ]]; then
-    git clone --depth 1 --branch 3736 https://github.com/coronalabs/corona.git "$src"
+  
+    git clone --depth 1 --branch "$BUILD_NUMBER" https://github.com/coronalabs/corona.git "$src"
 fi
-[[ $(git -C "$src" rev-parse HEAD) == "$revision" ]] || fail "Unexpected source revision: $src"
+
 git -C "$src" submodule update --init --recursive --jobs 4
 
 # Extract portable export resources without installing Windows software or Snap.
-msi="$root/Solar2D-Windows-2026.3736.msi"
-checksum=5a97b88f4c775507e3d5bd3f2c5f514d4313bbdeca0d4b299830095b36314d17
+msi="$root/$MSI_FILE"
 if [[ ! -f "$msi" ]]; then
     curl --fail --location --retry 3 --connect-timeout 30 \
-        https://github.com/coronalabs/corona/releases/download/3736/Solar2D-Windows-2026.3736.msi \
+        "$MSI_URL" \
         --output "$msi.part"
     mv "$msi.part" "$msi"
 fi
-printf '%s  %s\n' "$checksum" "$msi" | sha256sum --check -
+
 mkdir -p "$root/extracted"
 msiextract -C "$root/extracted" "$msi" > "$root/extraction.log"
 resources="$root/extracted/Program Files/Corona Labs/Corona"
@@ -55,7 +68,8 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export PATH="$JAVA_HOME/bin:$PATH"
 java -version
 jarsigner -help > /dev/null
-export YEAR=2026 BUILD_NUMBER=3736
+
+export YEAR="$YEAR" BUILD_NUMBER="$BUILD_NUMBER"
 cmake -S "$src" -B "$build" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     '-DCMAKE_C_FLAGS=-Wno-error=incompatible-pointer-types -Wno-error=implicit-function-declaration'
@@ -73,7 +87,7 @@ fi
 
 # A launcher keeps Java and English locale settings local to Solar2D.
 mkdir -p "$HOME/.local/bin"
-launcher="$HOME/.local/bin/solar2d-2026.3736"
+launcher="$HOME/.local/bin/solar2d-${YEAR}.${BUILD_NUMBER}"
 {
     printf '#!/usr/bin/env bash\nset -e\n'
     printf 'export LANG=C.UTF-8 LC_ALL=C.UTF-8 LANGUAGE=en\n'
